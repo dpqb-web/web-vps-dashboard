@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Proxmox Dashboard</title>
+    <link href="/commit/commit.css" rel="stylesheet" />
+    <link href="/style.css" rel="stylesheet" />
+    <script src="/js/webview.js" defer></script>
+    <script src="/js/index.js" type="module" defer></script>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="search-wrap">
+          <img src="/img/bx-search.svg" class="search-icon" alt="" />
+          <input
+            type="text"
+            id="searchInput"
+            placeholder="Cari VM atau container..."
+          />
+        </div>
+        <div class="stats">
+          <div>total <b id="statTotal">0</b></div>
+          <div>hidup <b id="statUp">0</b></div>
+          <div>mati <b id="statDown">0</b></div>
+          <button id="btnCreate" class="btn-create" hidden>
+            <img src="/img/bx-plus.svg" alt="" />
+          </button>
+        </div>
+      </header>
+
+      <div class="rack">
+        <div class="row head">
+          <div>slot</div>
+          <div>server</div>
+          <div>status</div>
+          <div style="text-align: right">kontrol</div>
+        </div>
+        <div id="list">
+          <div class="loading">memuat daftar server...</div>
+        </div>
+      </div>
+    </div>
+
+    <dialog id="dlgStop">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3>Stop Server</h3>
+          <button class="dlg-close" data-close="dlgStop">
+            <img src="/img/bx-x.svg" alt="" />
+          </button>
+        </div>
+        <div class="dlg-body">
+          <p id="dlgStopBody"></p>
+        </div>
+        <div class="dlg-actions">
+          <button class="btn-secondary" data-close="dlgStop">Batal</button>
+          <button class="btn-primary" id="dlgStopShutdown">Matikan</button>
+          <button class="btn-primary btn-danger" id="dlgStopForce">
+            Paksa Matikan
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="dlgRemove">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3>Hapus Server</h3>
+          <button class="dlg-close" data-close="dlgRemove">
+            <img src="/img/bx-x.svg" alt="" />
+          </button>
+        </div>
+        <div class="dlg-body">
+          <p id="dlgRemoveBody"></p>
+          <p class="dlg-warning">Tindakan ini tidak dapat dibatalkan.</p>
+        </div>
+        <div class="dlg-actions">
+          <button class="btn-secondary" data-close="dlgRemove">Batal</button>
+          <button class="btn-primary btn-danger" id="dlgRemoveOk">Hapus</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="dlgReboot">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3>Reboot Server</h3>
+          <button class="dlg-close" data-close="dlgReboot">
+            <img src="/img/bx-x.svg" alt="" />
+          </button>
+        </div>
+        <div class="dlg-body">
+          <p id="dlgRebootBody"></p>
+        </div>
+        <div class="dlg-actions">
+          <button class="btn-secondary" data-close="dlgReboot">Batal</button>
+          <button class="btn-primary" id="dlgRebootOk">Reboot</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="dlgReset">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3>Reset Server</h3>
+          <button class="dlg-close" data-close="dlgReset">
+            <img src="/img/bx-x.svg" alt="" />
+          </button>
+        </div>
+        <div class="dlg-body">
+          <p id="dlgResetBody"></p>
+          <p class="dlg-warning">Semua data akan dihapus.</p>
+        </div>
+        <div class="dlg-actions">
+          <button class="btn-secondary" data-close="dlgReset">Batal</button>
+          <button class="btn-primary btn-danger" id="dlgResetOk">Reset</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="dlgResize">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3 id="dlgResizeTitle">Ubah Ukuran</h3>
+          <button class="dlg-close" data-close="dlgResize">
+            <img src="/img/bx-x.svg" alt="" />
+          </button>
+        </div>
+        <div class="dlg-body">
+          <p id="dlgResizeCurrent"></p>
+          <label id="dlgResizeLabel">Ukuran baru</label>
+          <input type="number" id="dlgResizeInput" min="1" />
+        </div>
+        <div class="dlg-actions">
+          <button class="btn-secondary" data-close="dlgResize">Batal</button>
+          <button class="btn-primary" id="dlgResizeOk">Simpan</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="dlgCreate">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3>Buat VM / Container Baru</h3>
+          <button class="dlg-close" data-close="dlgCreate">
+            <img src="/img/bx-x.svg" alt="" />
+          </button>
+        </div>
+        <div class="dlg-body">
+          <label
+            >Node
+            <select id="createNode"></select>
+          </label>
+          <label
+            >Tipe
+            <select id="createType">
+              <option value="qemu">QEMU (VM)</option>
+              <option value="lxc">LXC (Container)</option>
+            </select>
+          </label>
+          <label
+            >Nama
+            <input type="text" id="createName" placeholder="my-server" />
+          </label>
+          <label
+            >CPU (cores)
+            <input type="number" id="createCores" value="1" min="1" max="128" />
+          </label>
+          <label
+            >RAM (MiB)
+            <input
+              type="number"
+              id="createMemory"
+              value="1024"
+              min="64"
+              step="64"
+            />
+          </label>
+          <label
+            >Disk (GiB)
+            <input type="number" id="createDisk" value="8" min="1" />
+          </label>
+        </div>
+        <div class="dlg-actions">
+          <button class="btn-secondary" data-close="dlgCreate">Batal</button>
+          <button class="btn-primary" id="dlgCreateOk">Buat</button>
+        </div>
+      </div>
+    </dialog>
+  </body>
+</html>
