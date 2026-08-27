@@ -19,7 +19,7 @@ type Config struct {
 		Secret string `toml:"secret"`
 	} `toml:"proxmox"`
 	App struct {
-		Webview bool `toml:"webview"`
+		Host   string `toml:"host"`
 		Port	  int  `toml:"port"`
 	} `toml:"app"`
 }
@@ -34,6 +34,7 @@ func main() {
 	if config.Proxmox.Port == 0 { config.Proxmox.Port = 8006 }
 	if config.Proxmox.User == "" { config.Proxmox.User = "root" }
 	if config.Proxmox.Realm == "" { config.Proxmox.Realm = "pam" }
+	if config.App.Host == "" { config.App.Host = "127.0.0.1" }
 	if config.App.Port == 0 { config.App.Port = 8080 }
 
 	if config.Proxmox.Host == "" || config.Proxmox.ID == "" || config.Proxmox.Secret == "" {
@@ -49,6 +50,6 @@ func main() {
 		},
 	}
 
-	log.Printf("http://127.0.0.1:%d\n", config.App.Port)
-	log.Fatalln(http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", config.App.Port), AppRoute()))
+	log.Printf("http://%s:%d\n", config.App.Host, config.App.Port)
+	log.Fatalln(http.ListenAndServe(fmt.Sprintf("%s:%d", config.App.Host, config.App.Port), AppRoute()))
 }
