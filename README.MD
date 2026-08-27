@@ -7,8 +7,8 @@ framework, tanpa bundler — cukup satu binary + folder `public/`.
 ## Fitur
 
 - **Accordion** — klik nama server untuk melihat detail, grafik, dan aksi.
-- **Grafik garis** — CPU dan RAM ditampilkan sebagai grafik garis real-time
-  (seperti Task Manager Windows) saat server sedang berjalan.
+- **Grafik garis** — CPU, RAM, Disk IO, dan Network ditampilkan sebagai grafik garis
+  real-time (seperti Task Manager Windows) saat server sedang berjalan.
 - **Resize** — ubah RAM atau disk server yang sedang berhenti dengan jumlah
   bebas.
 - **Buat / Hapus / Reset** — buat VM/container baru, hapus, atau reset ke
@@ -16,7 +16,7 @@ framework, tanpa bundler — cukup satu binary + folder `public/`.
 - **Dialog terpisah** — setiap aksi (stop, reboot, hapus, reset) menggunakan
   dialog konfirmasi sendiri.
 - **Pencarian** — cari server berdasarkan nama atau ID.
-- **Ikon SVG** — semua ikon menggunakan file SVG, bukan karakter Unicode.
+- **Ikon font** — semua ikon menggunakan Boxicons font (`<i class="bxf bx-*>`).
 - **Font Commit Mono** — monospace font yang konsisten di semua browser.
 - **Auto-refresh** — data diperbarui setiap 1 detik secara otomatis.
 
@@ -89,10 +89,10 @@ public/
   index.html         → halaman dashboard
   style.css          → semua styling
   js/index.js        → logic utama frontend (accordion, grafik, dialog)
-  js/app.js          → fungsi utilitas (fmtBytes, pct, svgIcon, fmtUptime)
+  js/app.js          → fungsi utilitas (fmtBytes, pct, fmtUptime)
   js/webview.js      → disable text selection (mode kiosk)
   commit/            → font Commit Mono
-  img/               → ikon SVG (Boxicons)
+  bx/                → Boxicons font (boxicons-filled.min.css)
 ```
 
 ## Catatan Keamanan

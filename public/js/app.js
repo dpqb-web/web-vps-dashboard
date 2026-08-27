@@ -20,10 +20,6 @@ function barClass(p) {
   return "";
 }
 
-function svgIcon(path, cls) {
-  return `<img src="${path}" class="${cls || ""}" alt="" />`;
-}
-
 function fmtUptime(sec) {
   if (!sec) return "-";
   var y = Math.floor(sec / (365.25 * 86400));
@@ -44,4 +40,4 @@ function fmtUptime(sec) {
   return parts.join("'");
 }
 
-export { fmtBytes, pct, barClass, svgIcon, fmtUptime };
+export { fmtBytes, pct, barClass, fmtUptime };

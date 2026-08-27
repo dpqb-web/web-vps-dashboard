@@ -175,11 +175,13 @@ func handleResizeServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var endpoint string
-	switch kind {
-	case "memory":
-		endpoint = fmt.Sprintf("/nodes/%s/%s/%s/resize?memory=%d", node, typ, vmid, int64(req.Delta))
-	case "disk":
-		endpoint = fmt.Sprintf("/nodes/%s/%s/%s/resize?disk=virtio0&delta=%dG", node, typ, vmid, int64(req.Delta))
+	switch {
+	case kind == "memory":
+		endpoint = fmt.Sprintf("/nodes/%s/%s/%s/config?memory=%d", node, typ, vmid, int64(req.Delta))
+	case kind == "disk" && typ == "lxc":
+		endpoint = fmt.Sprintf("/nodes/%s/lxc/%s/resize?disk=rootfs&size=%%2B%dG", node, vmid, int64(req.Delta))
+	case kind == "disk" && typ == "qemu":
+		endpoint = fmt.Sprintf("/nodes/%s/qemu/%s/resize?disk=virtio0&size=%%2B%dG", node, vmid, int64(req.Delta))
 	default:
 		http.Error(w, `{"error":"kind harus memory atau disk"}`, http.StatusBadRequest)
 		return
@@ -191,6 +193,66 @@ func handleResizeServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]json.RawMessage{"task": data})
+}
+
+// GET /api/metrics/{node}/{type}/{vmid} — RRDDATA untuk grafik disk IO & network
+func handleMetrics(w http.ResponseWriter, r *http.Request) {
+	node := r.PathValue("node")
+	typ := r.PathValue("type")
+	vmid := r.PathValue("vmid")
+
+	raw, err := pve("GET", fmt.Sprintf("/nodes/%s/%s/%s/rrddata?timeframe=hour", node, typ, vmid))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	var entries []map[string]interface{}
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		writeJSON(w, map[string]interface{}{
+			"error": "gagal parse rrddata",
+			"raw":   string(raw),
+		})
+		return
+	}
+
+	if len(entries) == 0 {
+		writeJSON(w, map[string]interface{}{
+			"error": "rrddata kosong",
+			"raw":   string(raw),
+		})
+		return
+	}
+
+	type dp struct {
+		T int64   `json:"t"`
+		V float64 `json:"v"`
+	}
+
+	result := map[string][]dp{}
+
+	for _, e := range entries {
+		ts, _ := e["timestamp"].(float64)
+		data, _ := e["data"].(map[string]interface{})
+		if data == nil {
+			continue
+		}
+		for key, v := range data {
+			if key == "uptime" || key == "status" || key == "name" || key == "vmid" || key == "maxcpu" {
+				continue
+			}
+			switch val := v.(type) {
+			case float64:
+				result[key] = append(result[key], dp{T: int64(ts), V: val})
+			case string:
+				var f float64
+				fmt.Sscanf(val, "%f", &f)
+				result[key] = append(result[key], dp{T: int64(ts), V: f})
+			}
+		}
+	}
+
+	writeJSON(w, result)
 }
 
 // POST /api/servers/{node}/{type}/{vmid}/reset — reinstall VM/LXC ke kosong
@@ -214,6 +276,7 @@ func AppRoute() http.Handler {
 
 	mux.HandleFunc("GET /api/servers", handleListServers)
 	mux.HandleFunc("GET /api/nodes", handleListNodes)
+	mux.HandleFunc("GET /api/metrics/{node}/{type}/{vmid}", handleMetrics)
 	mux.HandleFunc("POST /api/servers", handleCreateServer)
 	mux.HandleFunc("GET /api/servers/{node}/{type}/{vmid}", handleServerDetail)
 	mux.HandleFunc("POST /api/servers/{node}/{type}/{vmid}/{action}", handleServerAction)

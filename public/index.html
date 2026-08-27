@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Proxmox Dashboard</title>
     <link href="/commit/commit.css" rel="stylesheet" />
+    <link href="/bx/boxicons-filled.min.css" rel="stylesheet" />
     <link href="/style.css" rel="stylesheet" />
     <script src="/js/webview.js" defer></script>
     <script src="/js/index.js" type="module" defer></script>
@@ -14,7 +15,7 @@
     <div class="wrap">
       <header>
         <div class="search-wrap">
-          <img src="/img/bx-search.svg" class="search-icon" alt="" />
+          <i class="bxf bx-search search-icon"></i>
           <input
             type="text"
             id="searchInput"
@@ -26,7 +27,7 @@
           <div>hidup <b id="statUp">0</b></div>
           <div>mati <b id="statDown">0</b></div>
           <button id="btnCreate" class="btn-create" hidden>
-            <img src="/img/bx-plus.svg" alt="" />
+            <i class="bxf bx-plus"></i>
           </button>
         </div>
       </header>
@@ -49,7 +50,7 @@
         <div class="dlg-header">
           <h3>Stop Server</h3>
           <button class="dlg-close" data-close="dlgStop">
-            <img src="/img/bx-x.svg" alt="" />
+            <i class="bxf bx-x"></i>
           </button>
         </div>
         <div class="dlg-body">
@@ -70,7 +71,7 @@
         <div class="dlg-header">
           <h3>Hapus Server</h3>
           <button class="dlg-close" data-close="dlgRemove">
-            <img src="/img/bx-x.svg" alt="" />
+            <i class="bxf bx-x"></i>
           </button>
         </div>
         <div class="dlg-body">
@@ -89,7 +90,7 @@
         <div class="dlg-header">
           <h3>Reboot Server</h3>
           <button class="dlg-close" data-close="dlgReboot">
-            <img src="/img/bx-x.svg" alt="" />
+            <i class="bxf bx-x"></i>
           </button>
         </div>
         <div class="dlg-body">
@@ -107,7 +108,7 @@
         <div class="dlg-header">
           <h3>Reset Server</h3>
           <button class="dlg-close" data-close="dlgReset">
-            <img src="/img/bx-x.svg" alt="" />
+            <i class="bxf bx-x"></i>
           </button>
         </div>
         <div class="dlg-body">
@@ -126,7 +127,7 @@
         <div class="dlg-header">
           <h3 id="dlgResizeTitle">Ubah Ukuran</h3>
           <button class="dlg-close" data-close="dlgResize">
-            <img src="/img/bx-x.svg" alt="" />
+            <i class="bxf bx-x"></i>
           </button>
         </div>
         <div class="dlg-body">
@@ -146,7 +147,7 @@
         <div class="dlg-header">
           <h3>Buat VM / Container Baru</h3>
           <button class="dlg-close" data-close="dlgCreate">
-            <img src="/img/bx-x.svg" alt="" />
+            <i class="bxf bx-x"></i>
           </button>
         </div>
         <div class="dlg-body">
