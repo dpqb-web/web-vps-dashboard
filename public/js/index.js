@@ -177,7 +177,7 @@ function rowHtml(s) {
       : "") +
     (running
       ? '<button title="Reboot" data-action="reboot">' +
-        icon("rotate-cw") +
+        icon("rotate-ccw-dot") +
         "</button>"
       : "") +
     (running
@@ -222,7 +222,7 @@ function buildDetail(row, key) {
       '"></canvas>' +
       '<div class="graph-canvas-label"><span>0</span><span data-dyn="mem-max">—</span></div>' +
       "</div>" +
-      '<div class="graph-card" hidden><h4>Disk IO</h4>' +
+      '<div class="graph-card"><h4>Disk IO</h4>' +
       '<div class="graph-val" data-dyn="disk-io">—</div>' +
       '<canvas class="graph-canvas" data-metric="diskread" data-key="' +
       key +
@@ -232,7 +232,7 @@ function buildDetail(row, key) {
       '"></canvas>' +
       '<div class="graph-canvas-label"><span>write</span><span>read</span></div>' +
       "</div>" +
-      '<div class="graph-card" hidden><h4>Network</h4>' +
+      '<div class="graph-card"><h4>Network</h4>' +
       '<div class="graph-val" data-dyn="net-io">—</div>' +
       '<canvas class="graph-canvas" data-metric="netin" data-key="' +
       key +
@@ -243,10 +243,6 @@ function buildDetail(row, key) {
       '<div class="graph-canvas-label"><span>down</span><span>up</span></div>' +
       "</div></div>";
   } else {
-    var curMemMB = s.maxmem ? Math.round(s.maxmem / (1024 * 1024)) : 0;
-    var curDiskGB = s.maxdisk
-      ? Math.round(s.maxdisk / (1024 * 1024 * 1024))
-      : 0;
     graphs =
       '<div class="resize-panel">' +
       '<div class="resize-item"><span class="rlabel">RAM</span>' +
@@ -343,11 +339,12 @@ async function fetchConfigAndDraw(key, node, type, vmid, s) {
         cfg.memory ? cfg.memory * 1024 * 1024 : s.maxmem,
       );
 
-    pushGraphData(key, s);
-    drawAllCanvases(key);
-    fetchRRDData(key, node, type, vmid);
+    fetchRRDData(key, node, type, vmid, function () {
+      pushGraphData(key, s);
+      drawAllCanvases(key);
+    });
   } catch (err) {
-    /* config fetch failed, retry next cycle */
+    /* config fetch failed */
   }
 }
 
@@ -372,81 +369,90 @@ function pushGraphData(key, s) {
   if (!graphData[key]) graphData[key] = {};
   if (!graphData[key].cpu) graphData[key].cpu = [];
   if (!graphData[key].mem) graphData[key].mem = [];
+  if (!graphData[key].diskread) graphData[key].diskread = [0, 0];
+  if (!graphData[key].diskwrite) graphData[key].diskwrite = [0, 0];
+  if (!graphData[key].netin) graphData[key].netin = [0, 0];
+  if (!graphData[key].netout) graphData[key].netout = [0, 0];
+
   graphData[key].cpu.push(Math.round((s.cpuUsage || 0) * 100));
   graphData[key].mem.push(pct(s.mem, s.maxmem));
+
+  graphData[key].diskread.push(graphData[key]._lastDR || 0);
+  graphData[key].diskwrite.push(graphData[key]._lastDW || 0);
+  graphData[key].netin.push(graphData[key]._lastNI || 0);
+  graphData[key].netout.push(graphData[key]._lastNO || 0);
+
   if (graphData[key].cpu.length > MAX_POINTS) graphData[key].cpu.shift();
   if (graphData[key].mem.length > MAX_POINTS) graphData[key].mem.shift();
+  if (graphData[key].diskread.length > MAX_POINTS)
+    graphData[key].diskread.shift();
+  if (graphData[key].diskwrite.length > MAX_POINTS)
+    graphData[key].diskwrite.shift();
+  if (graphData[key].netin.length > MAX_POINTS) graphData[key].netin.shift();
+  if (graphData[key].netout.length > MAX_POINTS) graphData[key].netout.shift();
 }
 
-function fetchRRDData(key, node, type, vmid) {
-  if (graphData[key] && graphData[key]._rrdLoading) return;
-  if (!graphData[key]) graphData[key] = {};
-  graphData[key]._rrdLoading = true;
-
+function fetchRRDData(key, node, type, vmid, callback) {
   fetch("/api/metrics/" + node + "/" + type + "/" + vmid)
     .then(function (res) {
       if (!res.ok) throw new Error("gagal");
       return res.json();
     })
     .then(function (raw) {
-      if (!graphData[key]) return;
-      graphData[key].diskread = (raw.diskread || []).map(function (d) {
-        return d.v;
-      });
-      graphData[key].diskwrite = (raw.diskwrite || []).map(function (d) {
-        return d.v;
-      });
-      graphData[key].netin = (raw.netin || []).map(function (d) {
-        return d.v;
-      });
-      graphData[key].netout = (raw.netout || []).map(function (d) {
-        return d.v;
-      });
+      if (!graphData[key]) graphData[key] = {};
 
-      while (graphData[key].diskread.length > MAX_POINTS)
-        graphData[key].diskread.shift();
-      while (graphData[key].diskwrite.length > MAX_POINTS)
-        graphData[key].diskwrite.shift();
-      while (graphData[key].netin.length > MAX_POINTS)
-        graphData[key].netin.shift();
-      while (graphData[key].netout.length > MAX_POINTS)
-        graphData[key].netout.shift();
+      var drCum = raw.diskread || 0;
+      var dwCum = raw.diskwrite || 0;
+      var niCum = raw.netin || 0;
+      var noCum = raw.netout || 0;
+
+      if (graphData[key]._cumDR !== undefined) {
+        var drDelta = Math.max(0, drCum - graphData[key]._cumDR);
+        var dwDelta = Math.max(0, dwCum - graphData[key]._cumDW);
+        var niDelta = Math.max(0, niCum - graphData[key]._cumNI);
+        var noDelta = Math.max(0, noCum - graphData[key]._cumNO);
+
+        graphData[key]._lastDR = drDelta / 5;
+        graphData[key]._lastDW = dwDelta / 5;
+        graphData[key]._lastNI = niDelta / 5;
+        graphData[key]._lastNO = noDelta / 5;
+      } else {
+        graphData[key]._lastDR = 0;
+        graphData[key]._lastDW = 0;
+        graphData[key]._lastNI = 0;
+        graphData[key]._lastNO = 0;
+      }
+
+      graphData[key]._cumDR = drCum;
+      graphData[key]._cumDW = dwCum;
+      graphData[key]._cumNI = niCum;
+      graphData[key]._cumNO = noCum;
 
       var row = listEl.querySelector('.row[data-key="' + key + '"]');
-      if (!row) return;
-      var detailEl = row.querySelector(".row-detail");
-      if (!detailEl) return;
-
-      var diskEl = detailEl.querySelector('[data-dyn="disk-io"]');
-      var netEl = detailEl.querySelector('[data-dyn="net-io"]');
-
-      if (diskEl) {
-        var lastDR = graphData[key].diskread.length
-          ? graphData[key].diskread[graphData[key].diskread.length - 1]
-          : 0;
-        var lastDW = graphData[key].diskwrite.length
-          ? graphData[key].diskwrite[graphData[key].diskwrite.length - 1]
-          : 0;
-        diskEl.textContent =
-          fmtBytes(lastDW) + " W / " + fmtBytes(lastDR) + " R";
+      if (row) {
+        var detailEl = row.querySelector(".row-detail");
+        if (detailEl) {
+          var diskEl = detailEl.querySelector('[data-dyn="disk-io"]');
+          var netEl = detailEl.querySelector('[data-dyn="net-io"]');
+          if (diskEl)
+            diskEl.textContent =
+              fmtBytes(graphData[key]._lastDW) +
+              " W / " +
+              fmtBytes(graphData[key]._lastDR) +
+              " R";
+          if (netEl)
+            netEl.textContent =
+              fmtBytes(graphData[key]._lastNI) +
+              " in / " +
+              fmtBytes(graphData[key]._lastNO) +
+              " out";
+        }
       }
 
-      if (netEl) {
-        var lastNI = graphData[key].netin.length
-          ? graphData[key].netin[graphData[key].netin.length - 1]
-          : 0;
-        var lastNO = graphData[key].netout.length
-          ? graphData[key].netout[graphData[key].netout.length - 1]
-          : 0;
-        netEl.textContent =
-          fmtBytes(lastNI) + " in / " + fmtBytes(lastNO) + " out";
-      }
-
-      drawRRDCanvases(key);
+      if (callback) callback();
     })
-    .catch(function () {})
-    .then(function () {
-      if (graphData[key]) graphData[key]._rrdLoading = false;
+    .catch(function () {
+      if (callback) callback();
     });
 }
 
@@ -460,10 +466,7 @@ function drawRRDCanvases(key) {
   canvases.forEach(function (c) {
     var m = c.dataset.metric;
     if (m === "cpu" || m === "mem") return;
-    var vals = data[m];
-    if (vals && vals.length >= 2) {
-      drawLineGraph(c, vals, m);
-    }
+    drawLineGraph(c, data[m] || [0, 0], m);
   });
 }
 
@@ -477,10 +480,7 @@ function drawAllCanvases(key) {
   var canvases = row.querySelectorAll("canvas.graph-canvas");
   canvases.forEach(function (c) {
     var m = c.dataset.metric;
-    var vals = data[m];
-    if (vals && vals.length >= 2) {
-      drawLineGraph(c, vals, m);
-    }
+    drawLineGraph(c, data[m] || [0, 0], m);
   });
 }
 
@@ -495,21 +495,32 @@ function drawLineGraph(canvas, data, metric) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, w, h);
 
-  if (data.length < 2) return;
+  var color = GRAPH_COLORS[metric] || GRAPH_COLORS.cpu;
+  var pad = 2;
+
+  ctx.beginPath();
+  ctx.strokeStyle = color.line;
+  ctx.lineWidth = 1;
+  for (var gy = 0; gy <= 4; gy++) {
+    var py = pad + (gy / 4) * (h - pad * 2);
+    ctx.moveTo(0, py);
+    ctx.lineTo(w, py);
+  }
+  ctx.globalAlpha = 0.15;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  if (!data || data.length < 2) return;
 
   var isPercent = metric === "cpu" || metric === "mem";
   var max = 100;
   if (!isPercent) {
-    max = 0;
+    max = 1024; // Minimal skala 1 KB/s agar lonjakan kecil langsung terbaca grafiknya
     for (var i = 0; i < data.length; i++) {
       if (data[i] > max) max = data[i];
     }
-    if (max === 0) max = 1;
     max = max * 1.1;
   }
-
-  var color = GRAPH_COLORS[metric] || GRAPH_COLORS.cpu;
-  var pad = 2;
 
   ctx.beginPath();
   ctx.strokeStyle = color.line;
@@ -537,20 +548,6 @@ function drawLineGraph(canvas, data, metric) {
   ctx.closePath();
   ctx.fillStyle = color.fill;
   ctx.fill();
-
-  if (isPercent) {
-    ctx.beginPath();
-    ctx.strokeStyle = color.line;
-    ctx.lineWidth = 1;
-    for (var y = 0; y <= 4; y++) {
-      var py = pad + (y / 4) * (h - pad * 2);
-      ctx.moveTo(0, py);
-      ctx.lineTo(w, py);
-    }
-    ctx.globalAlpha = 0.15;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
 }
 
 async function load() {
@@ -575,8 +572,10 @@ function updateExpandedGraphs() {
     });
     if (s && s.status === "running") {
       updateDetailValues(key, s);
-      pushGraphData(key, s);
-      drawAllCanvases(key);
+      fetchRRDData(key, s.node, s.type, String(s.id), function () {
+        pushGraphData(key, s);
+        drawAllCanvases(key);
+      });
     }
   });
 }
@@ -786,9 +785,7 @@ function openResizeDialog(s, kind, node, type, id) {
 
     closeDialog("dlgResize");
     try {
-      var payload = isMem
-        ? { delta: newVal }
-        : { delta: newVal - curVal };
+      var payload = isMem ? { delta: newVal } : { delta: newVal - curVal };
       var res = await fetch(
         "/api/servers/" + node + "/" + type + "/" + id + "/resize/" + kind,
         {
@@ -868,13 +865,3 @@ document
 
 load();
 setInterval(load, 1000);
-setInterval(function () {
-  expanded.forEach(function (key) {
-    var s = servers.find(function (s) {
-      return s.node + "-" + s.type + "-" + s.id === key;
-    });
-    if (s && s.status === "running") {
-      fetchRRDData(key, s.node, s.type, String(s.id));
-    }
-  });
-}, 30000);

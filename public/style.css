@@ -425,6 +425,10 @@ header {
   border-radius: 4px;
 }
 
+.graph-canvas:not(:last-child) {
+  margin-bottom: 6px;
+}
+
 .graph-canvas-label {
   display: flex;
   justify-content: space-between;

@@ -195,64 +195,19 @@ func handleResizeServer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]json.RawMessage{"task": data})
 }
 
-// GET /api/metrics/{node}/{type}/{vmid} — RRDDATA untuk grafik disk IO & network
+// GET /api/metrics/{node}/{type}/{vmid} — real-time disk IO & network dari status/current
 func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	node := r.PathValue("node")
 	typ := r.PathValue("type")
 	vmid := r.PathValue("vmid")
 
-	raw, err := pve("GET", fmt.Sprintf("/nodes/%s/%s/%s/rrddata?timeframe=hour", node, typ, vmid))
+	raw, err := pve("GET", fmt.Sprintf("/nodes/%s/%s/%s/status/current", node, typ, vmid))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 
-	var entries []map[string]interface{}
-	if err := json.Unmarshal(raw, &entries); err != nil {
-		writeJSON(w, map[string]interface{}{
-			"error": "gagal parse rrddata",
-			"raw":   string(raw),
-		})
-		return
-	}
-
-	if len(entries) == 0 {
-		writeJSON(w, map[string]interface{}{
-			"error": "rrddata kosong",
-			"raw":   string(raw),
-		})
-		return
-	}
-
-	type dp struct {
-		T int64   `json:"t"`
-		V float64 `json:"v"`
-	}
-
-	result := map[string][]dp{}
-
-	for _, e := range entries {
-		ts, _ := e["timestamp"].(float64)
-		data, _ := e["data"].(map[string]interface{})
-		if data == nil {
-			continue
-		}
-		for key, v := range data {
-			if key == "uptime" || key == "status" || key == "name" || key == "vmid" || key == "maxcpu" {
-				continue
-			}
-			switch val := v.(type) {
-			case float64:
-				result[key] = append(result[key], dp{T: int64(ts), V: val})
-			case string:
-				var f float64
-				fmt.Sscanf(val, "%f", &f)
-				result[key] = append(result[key], dp{T: int64(ts), V: f})
-			}
-		}
-	}
-
-	writeJSON(w, result)
+	writeJSON(w, raw)
 }
 
 // POST /api/servers/{node}/{type}/{vmid}/reset — reinstall VM/LXC ke kosong
