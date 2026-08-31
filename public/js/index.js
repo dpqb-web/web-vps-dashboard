@@ -177,7 +177,7 @@ function rowHtml(s) {
       : "") +
     (running
       ? '<button title="Reboot" data-action="reboot">' +
-        icon("rotate-ccw-dot") +
+        icon("rotate-cw") +
         "</button>"
       : "") +
     (running
@@ -213,34 +213,36 @@ function buildDetail(row, key) {
       '<canvas class="graph-canvas" data-metric="cpu" data-key="' +
       key +
       '"></canvas>' +
-      '<div class="graph-canvas-label"><span>0%</span><span>100%</span></div>' +
+      '<div class="graph-canvas-label" hidden><span>0%</span><span>100%</span></div>' +
       "</div>" +
       '<div class="graph-card"><h4>RAM</h4>' +
       '<div class="graph-val" data-dyn="mem-val">— / —</div>' +
       '<canvas class="graph-canvas" data-metric="mem" data-key="' +
       key +
       '"></canvas>' +
-      '<div class="graph-canvas-label"><span>0</span><span data-dyn="mem-max">—</span></div>' +
+      '<div class="graph-canvas-label" hidden><span>0</span><span data-dyn="mem-max">—</span></div>' +
       "</div>" +
       '<div class="graph-card"><h4>Disk IO</h4>' +
       '<div class="graph-val" data-dyn="disk-io">—</div>' +
-      '<canvas class="graph-canvas" data-metric="diskread" data-key="' +
+      '<canvas class="graph-canvas" data-metric="disk" data-key="' +
       key +
       '"></canvas>' +
-      '<canvas class="graph-canvas" data-metric="diskwrite" data-key="' +
-      key +
-      '"></canvas>' +
-      '<div class="graph-canvas-label"><span>write</span><span>read</span></div>' +
+      '<div class="graph-canvas-label" hidden><span style="color:' +
+      GRAPH_COLORS.diskwrite.line +
+      '">write</span><span style="color:' +
+      GRAPH_COLORS.diskread.line +
+      '">read</span></div>' +
       "</div>" +
       '<div class="graph-card"><h4>Network</h4>' +
       '<div class="graph-val" data-dyn="net-io">—</div>' +
-      '<canvas class="graph-canvas" data-metric="netin" data-key="' +
+      '<canvas class="graph-canvas" data-metric="net" data-key="' +
       key +
       '"></canvas>' +
-      '<canvas class="graph-canvas" data-metric="netout" data-key="' +
-      key +
-      '"></canvas>' +
-      '<div class="graph-canvas-label"><span>down</span><span>up</span></div>' +
+      '<div class="graph-canvas-label" hidden><span style="color:' +
+      GRAPH_COLORS.netin.line +
+      '">down</span><span style="color:' +
+      GRAPH_COLORS.netout.line +
+      '">up</span></div>' +
       "</div></div>";
   } else {
     graphs =
@@ -296,6 +298,7 @@ function buildDetail(row, key) {
     '<div class="spec-item"><div class="spec-label">CPU</div><div class="spec-value" data-dyn="cores">—</div></div>' +
     '<div class="spec-item"><div class="spec-label">RAM</div><div class="spec-value" data-dyn="maxmem">—</div></div>' +
     '<div class="spec-item"><div class="spec-label">Disk</div><div class="spec-value" data-dyn="maxdisk">—</div></div>' +
+    '<div class="spec-item"><div class="spec-label">IPv4</div><div class="spec-value" data-dyn="ipv4">—</div></div>' +
     '<div class="spec-item"><div class="spec-label">Uptime</div><div class="spec-value" data-dyn="uptime">—</div></div>' +
     "</div>";
 
@@ -304,6 +307,54 @@ function buildDetail(row, key) {
   if (running) {
     fetchConfigAndDraw(key, node, type, vmid, s);
   }
+}
+
+function extractIP(data) {
+  if (!data) return null;
+  var cfg = data.config;
+
+  if (data.interfaces) {
+    var ifaces = Array.isArray(data.interfaces)
+      ? data.interfaces
+      : data.interfaces.result || [];
+    for (var i = 0; i < ifaces.length; i++) {
+      var iface = ifaces[i];
+      if (iface.name === "lo") continue;
+
+      if (iface.inet && typeof iface.inet === "string") {
+        var ip = iface.inet.split("/")[0];
+        if (ip && ip !== "127.0.0.1") return ip;
+      }
+
+      if (iface["ip-addresses"]) {
+        for (var j = 0; j < iface["ip-addresses"].length; j++) {
+          var ipObj = iface["ip-addresses"][j];
+          if (
+            ipObj["ip-address-type"] === "ipv4" &&
+            ipObj["ip-address"] !== "127.0.0.1"
+          ) {
+            return ipObj["ip-address"];
+          }
+        }
+      }
+    }
+  }
+
+  if (cfg) {
+    for (var i = 0; i < 5; i++) {
+      var n = cfg["net" + i];
+      if (n && typeof n === "string") {
+        var m = n.match(/ip=([0-9\.]+)/);
+        if (m) return m[1];
+      }
+      var c = cfg["ipconfig" + i];
+      if (c && typeof c === "string") {
+        var m = c.match(/ip=([0-9\.]+)/);
+        if (m) return m[1];
+      }
+    }
+  }
+  return null;
 }
 
 async function fetchConfigAndDraw(key, node, type, vmid, s) {
@@ -323,6 +374,13 @@ async function fetchConfigAndDraw(key, node, type, vmid, s) {
     var maxmemEl = detailEl.querySelector('[data-dyn="maxmem"]');
     var maxdiskEl = detailEl.querySelector('[data-dyn="maxdisk"]');
     var memMaxEl = detailEl.querySelector('[data-dyn="mem-max"]');
+    var ipv4El = detailEl.querySelector('[data-dyn="ipv4"]');
+
+    if (ipv4El) {
+      var ip = extractIP(data);
+      if (ip) ipv4El.textContent = ip;
+      else ipv4El.textContent = "-";
+    }
 
     if (coresEl)
       coresEl.textContent =
@@ -466,7 +524,25 @@ function drawRRDCanvases(key) {
   canvases.forEach(function (c) {
     var m = c.dataset.metric;
     if (m === "cpu" || m === "mem") return;
-    drawLineGraph(c, data[m] || [0, 0], m);
+    if (m === "disk") {
+      drawDualLineGraph(
+        c,
+        data.diskwrite || [0, 0],
+        data.diskread || [0, 0],
+        "diskwrite",
+        "diskread",
+      );
+    } else if (m === "net") {
+      drawDualLineGraph(
+        c,
+        data.netin || [0, 0],
+        data.netout || [0, 0],
+        "netin",
+        "netout",
+      );
+    } else {
+      drawLineGraph(c, data[m] || [0, 0], m);
+    }
   });
 }
 
@@ -480,8 +556,94 @@ function drawAllCanvases(key) {
   var canvases = row.querySelectorAll("canvas.graph-canvas");
   canvases.forEach(function (c) {
     var m = c.dataset.metric;
-    drawLineGraph(c, data[m] || [0, 0], m);
+    if (m === "disk") {
+      drawDualLineGraph(
+        c,
+        data.diskwrite || [0, 0],
+        data.diskread || [0, 0],
+        "diskwrite",
+        "diskread",
+      );
+    } else if (m === "net") {
+      drawDualLineGraph(
+        c,
+        data.netin || [0, 0],
+        data.netout || [0, 0],
+        "netin",
+        "netout",
+      );
+    } else {
+      drawLineGraph(c, data[m] || [0, 0], m);
+    }
   });
+}
+
+function drawDualLineGraph(canvas, data1, data2, metric1, metric2) {
+  var ctx = canvas.getContext("2d");
+  var dpr = window.devicePixelRatio || 1;
+  var w = canvas.offsetWidth;
+  var h = canvas.offsetHeight;
+  if (w === 0 || h === 0) return;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  var color1 = GRAPH_COLORS[metric1] || GRAPH_COLORS.cpu;
+  var color2 = GRAPH_COLORS[metric2] || GRAPH_COLORS.cpu;
+  var pad = 2;
+
+  ctx.beginPath();
+  ctx.strokeStyle = color1.line;
+  ctx.lineWidth = 1;
+  for (var gy = 0; gy <= 4; gy++) {
+    var py = pad + (gy / 4) * (h - pad * 2);
+    ctx.moveTo(0, py);
+    ctx.lineTo(w, py);
+  }
+  ctx.globalAlpha = 0.15;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  if (!data1 || data1.length < 2 || !data2 || data2.length < 2) return;
+
+  var max = 1024;
+  for (var i = 0; i < data1.length; i++) {
+    if (data1[i] > max) max = data1[i];
+    if (data2[i] > max) max = data2[i];
+  }
+  max = max * 1.1;
+
+  function drawLine(data, color) {
+    ctx.beginPath();
+    ctx.strokeStyle = color.line;
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = "round";
+    for (var i = 0; i < data.length; i++) {
+      var x = (i / (MAX_POINTS - 1)) * w;
+      var y = pad + ((max - data[i]) / max) * (h - pad * 2);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.beginPath();
+    for (var i = 0; i < data.length; i++) {
+      var x = (i / (MAX_POINTS - 1)) * w;
+      var y = pad + ((max - data[i]) / max) * (h - pad * 2);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    var lastX = ((data.length - 1) / (MAX_POINTS - 1)) * w;
+    ctx.lineTo(lastX, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fillStyle = color.fill;
+    ctx.fill();
+  }
+
+  drawLine(data2, color2);
+  drawLine(data1, color1);
 }
 
 function drawLineGraph(canvas, data, metric) {

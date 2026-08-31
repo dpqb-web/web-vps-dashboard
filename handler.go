@@ -61,7 +61,18 @@ func handleServerDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, map[string]json.RawMessage{"status": status, "config": config})
+	var interfaces json.RawMessage
+	if typ == "lxc" {
+		if ifaces, err := pve("GET", fmt.Sprintf("/nodes/%s/lxc/%s/interfaces", node, vmid)); err == nil {
+			interfaces = ifaces
+		}
+	} else if typ == "qemu" {
+		if agentNet, err := pve("GET", fmt.Sprintf("/nodes/%s/qemu/%s/agent/network-get-interfaces", node, vmid)); err == nil {
+			interfaces = agentNet
+		}
+	}
+
+	writeJSON(w, map[string]json.RawMessage{"status": status, "config": config, "interfaces": interfaces})
 }
 
 var allowedActions = map[string]bool{"start": true, "stop": true, "shutdown": true, "reboot": true}
