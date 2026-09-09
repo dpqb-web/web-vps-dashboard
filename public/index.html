@@ -22,19 +22,54 @@
             placeholder="Cari VM atau container..."
           />
         </div>
-        <div class="stats">
-          <div>total <b id="statTotal">0</b></div>
-          <div>hidup <b id="statUp">0</b></div>
-          <div>mati <b id="statDown">0</b></div>
-          <button id="btnCreate" class="btn-create" hidden>
-            <i class="bxf bx-plus"></i>
+        <div class="user-menu" id="userMenu">
+          <button class="user-menu-btn" id="userMenuBtn">
+            <i class="bxf bx-user"></i>
+            <span id="userMenuName">...</span>
+            <i class="bxf bx-chevron-down user-menu-caret"></i>
           </button>
+          <div class="user-dropdown" id="userDropdown" hidden>
+            <a href="/users" id="userMenuManage" hidden>
+              <i class="bxf bx-group"></i> Kelola Pengguna
+            </a>
+            <a href="#" id="userMenuPassword">
+              <i class="bxf bx-key"></i> Ganti Kata Sandi
+            </a>
+            <a href="#" id="userMenuTOTP">
+              <i class="bxf bx-shield"></i> Atur TOTP
+            </a>
+            <hr />
+            <a href="#" id="userMenuSignout">
+              <i class="bxf bx-door-open"></i> Keluar
+            </a>
+          </div>
         </div>
       </header>
 
+      <div class="stats-grid">
+        <div class="stat-card">
+          total
+          <b id="statTotal">0</b>
+        </div>
+        <div class="stat-card">
+          hidup
+          <b id="statUp">0</b>
+        </div>
+        <div class="stat-card">
+          mati
+          <b id="statDown">0</b>
+        </div>
+        <div class="stat-card stat-card-action" hidden>
+          <button id="btnCreate" class="btn-create">
+            <i class="bxf bx-plus"></i>
+            <span>Buat VM</span>
+          </button>
+        </div>
+      </div>
+
       <div class="rack">
         <div class="row head">
-          <div>slot</div>
+          <div>vmid</div>
           <div>server</div>
           <div>status</div>
           <div style="text-align: right">kontrol</div>
@@ -188,6 +223,98 @@
         <div class="dlg-actions">
           <button class="btn-secondary" data-close="dlgCreate">Batal</button>
           <button class="btn-primary" id="dlgCreateOk">Buat</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="dlgHolder">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3>Beri Penanggung Jawab</h3>
+          <button class="dlg-close" data-close="dlgHolder">
+            <i class="bxf bx-x"></i>
+          </button>
+        </div>
+        <div class="dlg-body">
+          <p id="dlgHolderBody"></p>
+          <label>Pengguna admin yang bertanggung jawab</label>
+          <div class="holder-list" id="holderList"></div>
+        </div>
+        <div class="dlg-actions">
+          <button class="btn-secondary" data-close="dlgHolder">Batal</button>
+          <button class="btn-primary" id="dlgHolderOk">Simpan</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="dlgPassword">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3>Ganti Kata Sandi</h3>
+          <button class="dlg-close" data-close="dlgPassword">
+            <i class="bxf bx-x"></i>
+          </button>
+        </div>
+        <div class="dlg-body">
+          <label
+            >Kata sandi saat ini
+            <input type="password" id="passCurrent" autocomplete="current-password" />
+          </label>
+          <label
+            >Kata sandi baru
+            <input type="password" id="passNew" autocomplete="new-password" />
+          </label>
+          <label
+            >Konfirmasi kata sandi
+            <input type="password" id="passConfirm" autocomplete="new-password" />
+          </label>
+        </div>
+        <div class="dlg-actions">
+          <button class="btn-secondary" data-close="dlgPassword">Batal</button>
+          <button class="btn-primary" id="dlgPasswordOk">Simpan</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="dlgTOTP">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3>Autentikasi Dua Faktor (TOTP)</h3>
+          <button class="dlg-close" data-close="dlgTOTP">
+            <i class="bxf bx-x"></i>
+          </button>
+        </div>
+        <div class="dlg-body">
+          <div id="totpOffHidden" hidden>
+            <p>
+              Aktifkan TOTP dengan aplikasi authenticator (mis. Google
+              Authenticator, Aegis, atau Aegis Authenticator).
+            </p>
+            <button class="btn-primary" id="totpEnable">
+              Aktifkan TOTP
+            </button>
+          </div>
+          <div id="totpSetupHidden" hidden>
+            <p>Pindai kode QR di bawah dengan aplikasi authenticator Anda.</p>
+            <img id="totpQR" alt="Kode QR TOTP" hidden />
+            <label
+              >Kode 6 digit
+              <input
+                type="text"
+                id="totpCode"
+                inputmode="numeric"
+                maxlength="6"
+                autocomplete="one-time-code"
+              />
+            </label>
+            <button class="btn-primary" id="totpVerify">Verifikasi</button>
+          </div>
+          <div id="totpOnHidden" hidden>
+            <p>TOTP sudah aktif untuk akun ini.</p>
+            <button class="btn-primary btn-danger" id="totpDisable">
+              Nonaktifkan TOTP
+            </button>
+          </div>
         </div>
       </div>
     </dialog>

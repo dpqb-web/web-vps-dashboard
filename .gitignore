@@ -9,6 +9,9 @@
 *.dylib
 proxmox-dashboard
 
+# Database
+data.db*
+
 # Test binary, built with `go test -c`
 *.test
 

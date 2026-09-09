@@ -17,7 +17,19 @@ function pct(used, max) {
 function barClass(p) {
   if (p >= 90) return "crit";
   if (p >= 70) return "warn";
-  return "";
+  return "safe";
+}
+
+function thresholdClass(p) {
+  if (p >= 90) return "crit";
+  if (p >= 70) return "warn";
+  return "safe";
+}
+
+function thresholdLabel(p) {
+  if (p >= 90) return "gawat";
+  if (p >= 70) return "bahaya";
+  return "aman";
 }
 
 function fmtUptime(sec) {
@@ -40,4 +52,4 @@ function fmtUptime(sec) {
   return parts.join("'");
 }
 
-export { fmtBytes, pct, barClass, fmtUptime };
+export { fmtBytes, pct, barClass, thresholdClass, thresholdLabel, fmtUptime };

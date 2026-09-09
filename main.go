@@ -12,34 +12,55 @@ import (
 type Config struct {
 	Proxmox struct {
 		Host   string `toml:"host"`
-		Port	 int    `toml:"port"`
+		Port   int    `toml:"port"`
 		User   string `toml:"user"`
 		Realm  string `toml:"realm"`
 		ID     string `toml:"id"`
 		Secret string `toml:"secret"`
 	} `toml:"proxmox"`
 	App struct {
-		Host   string `toml:"host"`
-		Port	  int  `toml:"port"`
+		Host         string `toml:"host"`
+		Port         int    `toml:"port"`
+		Database     string `toml:"database"`
+		RootPassword string `toml:"root_password"`
 	} `toml:"app"`
 }
+
 var (
-	config      Config
-	httpClient  *http.Client
+	config     Config
+	httpClient *http.Client
 )
 
 func main() {
 	_, err := toml.DecodeFile("config.toml", &config)
-	if err != nil { log.Fatalln("Gagal baca config.toml:", err) }
-	if config.Proxmox.Port == 0 { config.Proxmox.Port = 8006 }
-	if config.Proxmox.User == "" { config.Proxmox.User = "root" }
-	if config.Proxmox.Realm == "" { config.Proxmox.Realm = "pam" }
-	if config.App.Host == "" { config.App.Host = "127.0.0.1" }
-	if config.App.Port == 0 { config.App.Port = 8080 }
+	if err != nil {
+		log.Fatalln("Gagal baca config.toml:", err)
+	}
+	if config.Proxmox.Port == 0 {
+		config.Proxmox.Port = 8006
+	}
+	if config.Proxmox.User == "" {
+		config.Proxmox.User = "root"
+	}
+	if config.Proxmox.Realm == "" {
+		config.Proxmox.Realm = "pam"
+	}
+	if config.App.Host == "" {
+		config.App.Host = "127.0.0.1"
+	}
+	if config.App.Port == 0 {
+		config.App.Port = 8080
+	}
+	if config.App.Database == "" {
+		config.App.Database = "data.db"
+	}
 
 	if config.Proxmox.Host == "" || config.Proxmox.ID == "" || config.Proxmox.Secret == "" {
 		log.Fatalln("config [proxmox] host, id, secret = not set")
 	}
+
+	initDB(config.App.Database, config.App.RootPassword)
+	defer db.Close()
 
 	// Proxmox biasanya pakai sertifikat self-signed. InsecureSkipVerify
 	// mengizinkan koneksi tetap jalan walau sertifikatnya tidak resmi.

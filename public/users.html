@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kelola Pengguna — Proxmox Dashboard</title>
+    <link href="/commit/commit.css" rel="stylesheet" />
+    <link href="/bx/boxicons-filled.min.css" rel="stylesheet" />
+    <link href="/style.css" rel="stylesheet" />
+    <script src="/js/webview.js" defer></script>
+    <script src="/js/users.js" type="module" defer></script>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <header>
+        <a class="btn-secondary back-link" href="/">
+          <i class="bxf bx-undo"></i> Dashboard
+        </a>
+        <div class="page-title">
+          <h1>Kelola Pengguna</h1>
+          <button class="btn-primary" id="btnAddUser">
+            <i class="bxf bx-user-plus"></i> Tambah Pengguna
+          </button>
+        </div>
+      </header>
+
+      <div class="rack">
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>username</th>
+              <th>fullname</th>
+              <th>grup</th>
+              <th>totp</th>
+              <th style="text-align: right">aksi</th>
+            </tr>
+          </thead>
+          <tbody id="userRows">
+            <tr>
+              <td colspan="5" class="users-empty">memuat pengguna...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <dialog id="dlgUserForm">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3 id="userFormTitle">Tambah Pengguna</h3>
+          <button class="dlg-close" data-close="dlgUserForm">
+            <i class="bxf bx-x"></i>
+          </button>
+        </div>
+        <div class="dlg-body">
+          <label
+            >Username (alfanumerik)
+            <input type="text" id="userUsername" autocapitalize="none" spellcheck="false" />
+          </label>
+          <label
+            >Nama lengkap
+            <input type="text" id="userFullname" />
+          </label>
+          <label
+            >Grup
+            <select id="userGroup">
+              <option value="admin">admin</option>
+              <option value="noc">noc</option>
+            </select>
+          </label>
+          <div id="userPassFields">
+            <label
+              >Kata sandi
+              <input type="password" id="userPassword" autocomplete="new-password" />
+            </label>
+            <label
+              >Konfirmasi kata sandi
+              <input type="password" id="userPasswordConfirm" autocomplete="new-password" />
+            </label>
+            <p class="dlg-hint">
+              Minimal 8 karakter berisi 1 huruf besar, 1 huruf kecil, 1 angka,
+              dan 1 simbol ASCII.
+            </p>
+          </div>
+        </div>
+        <div class="dlg-actions">
+          <button class="btn-secondary" data-close="dlgUserForm">Batal</button>
+          <button class="btn-primary" id="userFormOk">Simpan</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="dlgUserPassword">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3>Ganti Kata Sandi Pengguna</h3>
+          <button class="dlg-close" data-close="dlgUserPassword">
+            <i class="bxf bx-x"></i>
+          </button>
+        </div>
+        <div class="dlg-body">
+          <p id="userPasswordFor"></p>
+          <label
+            >Kata sandi baru
+            <input type="password" id="upPassword" autocomplete="new-password" />
+          </label>
+          <label
+            >Konfirmasi kata sandi
+            <input type="password" id="upPasswordConfirm" autocomplete="new-password" />
+          </label>
+          <p class="dlg-hint">
+            Minimal 8 karakter berisi 1 huruf besar, 1 huruf kecil, 1 angka,
+            dan 1 simbol ASCII.
+          </p>
+        </div>
+        <div class="dlg-actions">
+          <button class="btn-secondary" data-close="dlgUserPassword">Batal</button>
+          <button class="btn-primary" id="upOk">Simpan</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="dlgUserTOTP">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3>TOTP Pengguna</h3>
+          <button class="dlg-close" data-close="dlgUserTOTP">
+            <i class="bxf bx-x"></i>
+          </button>
+        </div>
+        <div class="dlg-body">
+          <p id="userTOTPFor"></p>
+          <div id="utOff" hidden>
+            <p>
+              Aktifkan TOTP dengan aplikasi authenticator (mis. Google
+              Authenticator, Aegis, atau Aegis Authenticator).
+            </p>
+            <button class="btn-primary" id="utEnable">Aktifkan TOTP</button>
+          </div>
+          <div id="utSetup" hidden>
+            <p>Pindai kode QR di bawah dengan aplikasi authenticator Anda.</p>
+            <img id="utQR" class="totp-qr" alt="Kode QR TOTP" hidden />
+            <p class="totp-secret-pending" id="utSecret" hidden></p>
+            <label
+              >Kode 6 digit
+              <input
+                type="text"
+                id="utCode"
+                inputmode="numeric"
+                maxlength="6"
+                autocomplete="one-time-code"
+              />
+            </label>
+            <button class="btn-primary" id="utVerify">Verifikasi</button>
+          </div>
+          <div id="utOn" hidden>
+            <p>TOTP sudah aktif untuk pengguna ini.</p>
+            <button class="btn-primary btn-danger" id="utDisable">
+              Nonaktifkan TOTP
+            </button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="dlgUserDelete">
+      <div class="dlg-wrap">
+        <div class="dlg-header">
+          <h3>Hapus Pengguna</h3>
+          <button class="dlg-close" data-close="dlgUserDelete">
+            <i class="bxf bx-x"></i>
+          </button>
+        </div>
+        <div class="dlg-body">
+          <p id="userDeleteBody"></p>
+          <p class="dlg-warning">
+            Server yang menjadi tanggung jawab pengguna ini akan dilepas.
+          </p>
+        </div>
+        <div class="dlg-actions">
+          <button class="btn-secondary" data-close="dlgUserDelete">Batal</button>
+          <button class="btn-primary btn-danger" id="userDeleteOk">Hapus</button>
+        </div>
+      </div>
+    </dialog>
+  </body>
+</html>

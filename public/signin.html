@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Masuk — Proxmox Dashboard</title>
+    <link href="/commit/commit.css" rel="stylesheet" />
+    <link href="/bx/boxicons-filled.min.css" rel="stylesheet" />
+    <link href="/style.css" rel="stylesheet" />
+    <script src="/js/webview.js" defer></script>
+    <script src="/js/signin.js" type="module" defer></script>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <div class="auth-wrap">
+        <div class="auth-card">
+          <div class="logo">
+            <i class="bxf bx-server"></i>
+            <h1>Proxmox Dashboard</h1>
+          </div>
+          <p class="sub">Silakan masuk untuk melanjutkan.</p>
+
+          <div class="auth-error" id="authError"></div>
+
+          <form id="signinForm" autocomplete="off">
+            <label
+              >Username
+              <input
+                type="text"
+                id="signinUsername"
+                autocomplete="username"
+                autocapitalize="none"
+                spellcheck="false"
+                required
+              />
+            </label>
+            <label
+              >Kata sandi
+              <input
+                type="password"
+                id="signinPassword"
+                autocomplete="current-password"
+                required
+              />
+            </label>
+
+            <div id="totpStep" hidden>
+              <label
+                >Kode TOTP 6 digit
+                <input
+                  type="text"
+                  id="signinTOTP"
+                  inputmode="numeric"
+                  maxlength="6"
+                  autocomplete="one-time-code"
+                />
+              </label>
+            </div>
+
+            <button class="btn-primary" type="submit" id="signinSubmit">
+              Masuk
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

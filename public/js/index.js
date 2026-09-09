@@ -1,4 +1,11 @@
-import { fmtBytes, pct, barClass, fmtUptime } from "./app.js";
+import {
+  fmtBytes,
+  pct,
+  barClass,
+  thresholdClass,
+  thresholdLabel,
+  fmtUptime,
+} from "./app.js";
 
 var listEl = document.getElementById("list");
 var searchEl = document.getElementById("searchInput");
@@ -10,6 +17,10 @@ var expanded = new Set();
 var prevRunning = {};
 var graphData = {};
 var detailCache = {};
+var serverIPs = {};
+var detailRetry = {};
+var currentUser = null;
+var holderKey = null;
 var MAX_POINTS = 60;
 var GRAPH_COLORS = {
   cpu: { line: "#0d9488", fill: "rgba(13,148,136,0.12)" },
@@ -24,19 +35,72 @@ function icon(name, cls) {
   return '<i class="bxf bx-' + name + (cls ? " " + cls : "") + '"></i>';
 }
 
+function isRoot() {
+  return !!(currentUser && currentUser.group === "root");
+}
+
+function canManage() {
+  return !!(
+    currentUser &&
+    (currentUser.group === "root" || currentUser.group === "admin")
+  );
+}
+
+class RedirectError extends Error {
+  constructor() {
+    super("sesi berakhir");
+    this.redirecting = true;
+  }
+}
+
+async function api(path, opts) {
+  var res = await fetch(path, opts);
+  if (res.status === 401) {
+    location.href = "/signin";
+    throw new RedirectError();
+  }
+  return res;
+}
+
+function report(err) {
+  if (err && err.redirecting) return;
+  alert(err.message);
+}
+
+function peakUsage(s) {
+  var cpu = Math.round((s.cpuUsage || 0) * 100);
+  var mem = pct(s.mem, s.maxmem);
+  return Math.max(cpu, mem);
+}
+
+async function loadUserInfo() {
+  try {
+    var res = await api("/api/auth/me");
+    currentUser = await res.json();
+  } catch (err) {
+    return;
+  }
+  document.getElementById("userMenuName").textContent = currentUser.username;
+  document.getElementById("userMenuManage").hidden = currentUser.group !== "root";
+  document.getElementById("btnCreate").hidden = currentUser.group !== "root";
+  prevLen = -1;
+  render();
+  updateExpandedGraphs();
+}
+
 function render() {
   var q = (searchEl.value || "").toLowerCase().trim();
-  var filtered = servers.filter(function (s) {
+  var filtered = servers.filter(function(s) {
     if (!q) return true;
     return (s.name || "").toLowerCase().includes(q) || String(s.id).includes(q);
   });
 
   document.getElementById("statTotal").textContent = servers.length;
-  document.getElementById("statUp").textContent = servers.filter(function (s) {
+  document.getElementById("statUp").textContent = servers.filter(function(s) {
     return s.status === "running";
   }).length;
   document.getElementById("statDown").textContent = servers.filter(
-    function (s) {
+    function(s) {
       return s.status !== "running";
     },
   ).length;
@@ -51,7 +115,7 @@ function render() {
     return;
   }
 
-  filtered.sort(function (a, b) {
+  filtered.sort(function(a, b) {
     return a.id - b.id;
   });
 
@@ -72,12 +136,12 @@ function buildList(filtered) {
   detailCache = {};
 
   listEl.innerHTML = filtered
-    .map(function (s) {
+    .map(function(s) {
       return rowHtml(s);
     })
     .join("");
 
-  oldExpanded.forEach(function (key) {
+  oldExpanded.forEach(function(key) {
     var row = listEl.querySelector('.row[data-key="' + key + '"]');
     if (row) {
       expanded.add(key);
@@ -87,7 +151,7 @@ function buildList(filtered) {
 }
 
 function updateList(filtered) {
-  filtered.forEach(function (s) {
+  filtered.forEach(function(s) {
     var key = s.node + "-" + s.type + "-" + s.id;
     var row = listEl.querySelector('.row[data-key="' + key + '"]');
     if (!row) return;
@@ -105,31 +169,57 @@ function updateList(filtered) {
         : "stopped";
     }
 
+    var badge = row.querySelector("[data-threshold]");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "threshold-badge";
+      badge.dataset.threshold = "";
+      var statusCol = row.querySelector(".status-col");
+      if (statusCol) statusCol.appendChild(badge);
+    }
+    if (running) {
+      var p = peakUsage(s);
+      badge.className = "threshold-badge " + thresholdClass(p);
+      badge.textContent = thresholdLabel(p);
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+
     var prev = prevRunning[key];
     if (prev !== running) {
       var actionsEl = row.querySelector(".actions");
       if (actionsEl) {
         actionsEl.innerHTML = "";
-        if (!running) {
-          actionsEl.innerHTML +=
-            '<button title="Start" data-action="start">' +
-            icon("play") +
-            "</button>";
-        }
-        if (running) {
-          actionsEl.innerHTML +=
-            '<button title="Reboot" data-action="reboot">' +
-            icon("rotate-cw") +
-            "</button>";
-          actionsEl.innerHTML +=
-            '<button class="danger" title="Stop" data-action="stop">' +
-            icon("stop") +
-            "</button>";
+        if (canManage()) {
+          if (!running) {
+            actionsEl.innerHTML +=
+              '<button title="Start" data-action="start">' +
+              icon("play") +
+              "</button>";
+          }
+          if (running) {
+            actionsEl.innerHTML +=
+              '<button title="Reboot" data-action="reboot">' +
+              icon("rotate-cw") +
+              "</button>";
+            actionsEl.innerHTML +=
+              '<button class="danger" title="Stop" data-action="stop">' +
+              icon("stop") +
+              "</button>";
+          }
         }
       }
       if (wasExpanded) {
         delete detailCache[key];
         buildDetail(row, key);
+      }
+    }
+
+    if (running && wasExpanded && s.holderId !== undefined) {
+      var holderBtn = row.querySelector("[data-holder-label]");
+      if (holderBtn) {
+        holderBtn.textContent = s.holderName || "—";
       }
     }
 
@@ -142,6 +232,34 @@ function rowHtml(s) {
   var key = s.node + "-" + s.type + "-" + s.id;
   var isExpanded = expanded.has(key);
   prevRunning[key] = running;
+
+  var controls = "";
+  if (canManage()) {
+    if (!running) {
+      controls +=
+        '<button title="Start" data-action="start">' + icon("play") + "</button>";
+    }
+    if (running) {
+      controls +=
+        '<button title="Reboot" data-action="reboot">' +
+        icon("rotate-cw") +
+        "</button>";
+      controls +=
+        '<button class="danger" title="Stop" data-action="stop">' +
+        icon("stop") +
+        "</button>";
+    }
+  }
+
+  var badge = "";
+  if (running) {
+    badge =
+      '<span class="threshold-badge ' +
+      thresholdClass(peakUsage(s)) +
+      '" data-threshold>' +
+      thresholdLabel(peakUsage(s)) +
+      "</span>";
+  }
 
   return (
     '<div class="row ' +
@@ -162,29 +280,16 @@ function rowHtml(s) {
     s.node +
     "</div>" +
     "</div>" +
-    "<div>" +
+    '<div class="status-col">' +
     '<span class="status-pill ' +
     (running ? "running" : "stopped") +
     '"><span class="d"></span>' +
     (running ? "running" : "stopped") +
     "</span>" +
+    badge +
     "</div>" +
     '<div class="actions">' +
-    (!running
-      ? '<button title="Start" data-action="start">' +
-        icon("play") +
-        "</button>"
-      : "") +
-    (running
-      ? '<button title="Reboot" data-action="reboot">' +
-        icon("rotate-cw") +
-        "</button>"
-      : "") +
-    (running
-      ? '<button class="danger" title="Stop" data-action="stop">' +
-        icon("stop") +
-        "</button>"
-      : "") +
+    controls +
     "</div>" +
     '<div class="row-detail"></div>' +
     "</div>"
@@ -199,11 +304,20 @@ function buildDetail(row, key) {
   var node = parts[0];
   var type = parts[1];
   var vmid = parts[2];
-  var s = servers.find(function (s) {
+  var s = servers.find(function(s) {
     return s.node + "-" + s.type + "-" + s.id === key;
   });
   if (!s) return;
   var running = s.status === "running";
+
+  var holderInfo = "";
+  if (isRoot()) {
+    holderInfo =
+      '<div class="spec-item"><div class="spec-label">Penanggung Jawab</div>' +
+      '<div class="spec-value" data-holder-label>' +
+      (s.holderName || "—") +
+      "</div></div>";
+  }
 
   if (running) {
     var graphs =
@@ -265,23 +379,38 @@ function buildDetail(row, key) {
 
   var detailActions =
     '<div class="detail-actions">' +
-    (!running
+    (canManage() && !running
       ? '<button data-action="start">' + icon("play") + " Start</button>"
       : "") +
-    (running
+    (canManage() && running
       ? '<button data-action="reboot">' + icon("rotate-cw") + " Reboot</button>"
       : "") +
-    (running
+    (canManage() && running
       ? '<button class="danger" data-action="stop">' +
-        icon("stop") +
-        " Stop</button>"
+      icon("stop") +
+      " Stop</button>"
       : "") +
-    '<button data-action="reset" hidden>' +
-    icon("rotate-ccw-dot") +
-    " Reset</button>" +
-    '<button class="danger" data-action="delete">' +
-    icon("trash") +
-    " Hapus</button>" +
+    (canManage()
+      ? '<button data-action="reset" hidden>' +
+      icon("rotate-ccw-dot") +
+      " Reset</button>"
+      : "") +
+    (canManage() && running
+      ? '<button data-console>' + icon("terminal") + " Console</button>"
+      : "") +
+    (canManage()
+      ? '<button data-webmin hidden>' + icon("globe") + " Webmin</button>"
+      : "") +
+    (isRoot()
+      ? '<button data-holder>' +
+      icon("user-check") +
+      " Beri Penanggung Jawab</button>"
+      : "") +
+    (canManage()
+      ? '<button class="danger" data-action="delete">' +
+      icon("trash") +
+      " Hapus</button>"
+      : "") +
     "</div>";
 
   var specs =
@@ -300,13 +429,12 @@ function buildDetail(row, key) {
     '<div class="spec-item"><div class="spec-label">Disk</div><div class="spec-value" data-dyn="maxdisk">—</div></div>' +
     '<div class="spec-item"><div class="spec-label">IPv4</div><div class="spec-value" data-dyn="ipv4">—</div></div>' +
     '<div class="spec-item"><div class="spec-label">Uptime</div><div class="spec-value" data-dyn="uptime">—</div></div>' +
+    holderInfo +
     "</div>";
 
   detailEl.innerHTML = specs + graphs + detailActions;
 
-  if (running) {
-    fetchConfigAndDraw(key, node, type, vmid, s);
-  }
+  fetchConfigAndDraw(key, node, type, vmid, s);
 }
 
 function extractIP(data) {
@@ -359,7 +487,7 @@ function extractIP(data) {
 
 async function fetchConfigAndDraw(key, node, type, vmid, s) {
   try {
-    var res = await fetch("/api/servers/" + node + "/" + type + "/" + vmid);
+    var res = await api("/api/servers/" + node + "/" + type + "/" + vmid);
     if (!res.ok) throw new Error("gagal mengambil detail");
     var data = await res.json();
     var cfg = data.config || {};
@@ -376,10 +504,14 @@ async function fetchConfigAndDraw(key, node, type, vmid, s) {
     var memMaxEl = detailEl.querySelector('[data-dyn="mem-max"]');
     var ipv4El = detailEl.querySelector('[data-dyn="ipv4"]');
 
+    var ip = extractIP(data);
     if (ipv4El) {
-      var ip = extractIP(data);
-      if (ip) ipv4El.textContent = ip;
-      else ipv4El.textContent = "-";
+      ipv4El.textContent = ip ? ip : "-";
+    }
+    if (ip) {
+      serverIPs[key] = ip;
+      var webminBtn = detailEl.querySelector("[data-webmin]");
+      if (webminBtn) webminBtn.hidden = false;
     }
 
     if (coresEl)
@@ -397,12 +529,14 @@ async function fetchConfigAndDraw(key, node, type, vmid, s) {
         cfg.memory ? cfg.memory * 1024 * 1024 : s.maxmem,
       );
 
-    fetchRRDData(key, node, type, vmid, function () {
-      pushGraphData(key, s);
-      drawAllCanvases(key);
-    });
+    if (s.status === "running") {
+      fetchRRDData(key, node, type, vmid, function() {
+        pushGraphData(key, s);
+        drawAllCanvases(key);
+      });
+    }
   } catch (err) {
-    /* config fetch failed */
+    if (err.redirecting) return;
   }
 }
 
@@ -451,12 +585,12 @@ function pushGraphData(key, s) {
 }
 
 function fetchRRDData(key, node, type, vmid, callback) {
-  fetch("/api/metrics/" + node + "/" + type + "/" + vmid)
-    .then(function (res) {
+  api("/api/metrics/" + node + "/" + type + "/" + vmid)
+    .then(function(res) {
       if (!res.ok) throw new Error("gagal");
       return res.json();
     })
-    .then(function (raw) {
+    .then(function(raw) {
       if (!graphData[key]) graphData[key] = {};
 
       var drCum = raw.diskread || 0;
@@ -509,7 +643,7 @@ function fetchRRDData(key, node, type, vmid, callback) {
 
       if (callback) callback();
     })
-    .catch(function () {
+    .catch(function() {
       if (callback) callback();
     });
 }
@@ -521,7 +655,7 @@ function drawRRDCanvases(key) {
   if (!row) return;
 
   var canvases = row.querySelectorAll("canvas.graph-canvas");
-  canvases.forEach(function (c) {
+  canvases.forEach(function(c) {
     var m = c.dataset.metric;
     if (m === "cpu" || m === "mem") return;
     if (m === "disk") {
@@ -554,7 +688,7 @@ function drawAllCanvases(key) {
   if (!row) return;
 
   var canvases = row.querySelectorAll("canvas.graph-canvas");
-  canvases.forEach(function (c) {
+  canvases.forEach(function(c) {
     var m = c.dataset.metric;
     if (m === "disk") {
       drawDualLineGraph(
@@ -677,7 +811,7 @@ function drawLineGraph(canvas, data, metric) {
   var isPercent = metric === "cpu" || metric === "mem";
   var max = 100;
   if (!isPercent) {
-    max = 1024; // Minimal skala 1 KB/s agar lonjakan kecil langsung terbaca grafiknya
+    max = 1024;
     for (var i = 0; i < data.length; i++) {
       if (data[i] > max) max = data[i];
     }
@@ -714,12 +848,13 @@ function drawLineGraph(canvas, data, metric) {
 
 async function load() {
   try {
-    var res = await fetch("/api/servers");
+    var res = await api("/api/servers");
     if (!res.ok) throw new Error("gagal mengambil data (" + res.status + ")");
     servers = await res.json();
     render();
     updateExpandedGraphs();
   } catch (err) {
+    if (err.redirecting) return;
     listEl.innerHTML =
       '<div class="error">' +
       err.message +
@@ -728,13 +863,17 @@ async function load() {
 }
 
 function updateExpandedGraphs() {
-  expanded.forEach(function (key) {
-    var s = servers.find(function (s) {
+  expanded.forEach(function(key) {
+    var s = servers.find(function(s) {
       return s.node + "-" + s.type + "-" + s.id === key;
     });
     if (s && s.status === "running") {
+      if (!serverIPs[key] && Date.now() - (detailRetry[key] || 0) > 3000) {
+        detailRetry[key] = Date.now();
+        fetchConfigAndDraw(key, s.node, s.type, String(s.id), s);
+      }
       updateDetailValues(key, s);
-      fetchRRDData(key, s.node, s.type, String(s.id), function () {
+      fetchRRDData(key, s.node, s.type, String(s.id), function() {
         pushGraphData(key, s);
         drawAllCanvases(key);
       });
@@ -752,22 +891,24 @@ function closeDialog(id) {
   if (dlg) dlg.close();
 }
 
-document.querySelectorAll("[data-close]").forEach(function (btn) {
-  btn.addEventListener("click", function () {
+document.querySelectorAll("[data-close]").forEach(function(btn) {
+  btn.addEventListener("click", function() {
     closeDialog(btn.dataset.close);
   });
 });
 
-document.querySelectorAll("dialog").forEach(function (dlg) {
-  dlg.addEventListener("click", function (e) {
+document.querySelectorAll("dialog").forEach(function(dlg) {
+  dlg.addEventListener("click", function(e) {
     if (e.target === dlg) dlg.close();
   });
 });
 
 searchEl.addEventListener("input", render);
 
-listEl.addEventListener("click", async function (e) {
-  var btn = e.target.closest("button[data-action]");
+listEl.addEventListener("click", async function(e) {
+  var btn = e.target.closest(
+    "button[data-action],button[data-resize],button[data-console],button[data-webmin],button[data-holder]",
+  );
   if (btn) {
     e.stopPropagation();
     var row = btn.closest(".row");
@@ -776,16 +917,70 @@ listEl.addEventListener("click", async function (e) {
     var node = parts[0];
     var type = parts[1];
     var id = parts[2];
+
+    if (btn.hasAttribute("data-console")) {
+      try {
+        var res = await api(
+          "/api/console/" + node + "/" + type + "/" + id,
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          var errBody = await res.json().catch(function() {
+            return null;
+          });
+          throw new Error(
+            (errBody && errBody.error) || "gagal membuka console",
+          );
+        }
+        var cdata = await res.json();
+        var path =
+          "/api/console/ws?token=" + encodeURIComponent(cdata.token);
+        var url =
+          "/noVNC/vnc.html?autoconnect=1&resize=scale&path=" +
+          encodeURIComponent(path);
+        if (cdata.password) {
+          url += "&password=" + encodeURIComponent(cdata.password);
+        }
+        window.open(url, "_blank");
+      } catch (err) {
+        report(err);
+      }
+      return;
+    }
+
+    if (btn.hasAttribute("data-webmin")) {
+      var ip = serverIPs[key];
+      if (!ip) {
+        alert("IP server belum diketahui");
+        return;
+      }
+      window.open("http://" + ip + ":10000", "_blank");
+      return;
+    }
+
+    if (btn.hasAttribute("data-holder")) {
+      openHolderDialog(key, row);
+      return;
+    }
+
+    if (btn.hasAttribute("data-resize")) {
+      var s = servers.find(function(s) {
+        return s.node + "-" + s.type + "-" + s.id === key;
+      });
+      openResizeDialog(s, btn.dataset.resize, node, type, id);
+      return;
+    }
+
     var action = btn.dataset.action;
 
     if (action === "stop") {
       document.getElementById("dlgStopBody").textContent =
         "Yakin mau stop " + type.toUpperCase() + " #" + id + "?";
-      document.getElementById("dlgStopShutdown").onclick = async function () {
+      document.getElementById("dlgStopShutdown").onclick = async function() {
         closeDialog("dlgStop");
         await doAction(node, type, id, "shutdown", row);
       };
-      document.getElementById("dlgStopForce").onclick = async function () {
+      document.getElementById("dlgStopForce").onclick = async function() {
         closeDialog("dlgStop");
         await doAction(node, type, id, "stop", row);
       };
@@ -796,10 +991,10 @@ listEl.addEventListener("click", async function (e) {
     if (action === "delete") {
       document.getElementById("dlgRemoveBody").textContent =
         "Yakin mau menghapus " + type.toUpperCase() + " #" + id + "?";
-      document.getElementById("dlgRemoveOk").onclick = async function () {
+      document.getElementById("dlgRemoveOk").onclick = async function() {
         closeDialog("dlgRemove");
         try {
-          var res = await fetch(
+          var res = await api(
             "/api/servers/" + node + "/" + type + "/" + id,
             { method: "DELETE" },
           );
@@ -809,9 +1004,10 @@ listEl.addEventListener("click", async function (e) {
           delete graphData[key];
           delete prevRunning[key];
           delete detailCache[key];
+          delete serverIPs[key];
           setTimeout(load, 1000);
         } catch (err) {
-          alert(err.message);
+          report(err);
           render();
         }
       };
@@ -822,7 +1018,7 @@ listEl.addEventListener("click", async function (e) {
     if (action === "reboot") {
       document.getElementById("dlgRebootBody").textContent =
         "Yakin mau reboot " + type.toUpperCase() + " #" + id + "?";
-      document.getElementById("dlgRebootOk").onclick = async function () {
+      document.getElementById("dlgRebootOk").onclick = async function() {
         closeDialog("dlgReboot");
         await doAction(node, type, id, "reboot", row);
       };
@@ -833,10 +1029,10 @@ listEl.addEventListener("click", async function (e) {
     if (action === "reset") {
       document.getElementById("dlgResetBody").textContent =
         "Yakin mau reset " + type.toUpperCase() + " #" + id + "?";
-      document.getElementById("dlgResetOk").onclick = async function () {
+      document.getElementById("dlgResetOk").onclick = async function() {
         closeDialog("dlgReset");
         try {
-          var res = await fetch(
+          var res = await api(
             "/api/servers/" + node + "/" + type + "/" + id + "/reset",
             { method: "POST" },
           );
@@ -846,9 +1042,10 @@ listEl.addEventListener("click", async function (e) {
           delete graphData[key];
           delete prevRunning[key];
           delete detailCache[key];
+          delete serverIPs[key];
           setTimeout(load, 1000);
         } catch (err) {
-          alert(err.message);
+          report(err);
           render();
         }
       };
@@ -857,23 +1054,6 @@ listEl.addEventListener("click", async function (e) {
     }
 
     await doAction(node, type, id, action, row);
-    return;
-  }
-
-  var resizeBtn = e.target.closest("button[data-resize]");
-  if (resizeBtn) {
-    e.stopPropagation();
-    var row = resizeBtn.closest(".row");
-    var key = row.dataset.key;
-    var parts = key.split("-");
-    var node = parts[0];
-    var type = parts[1];
-    var id = parts[2];
-    var kind = resizeBtn.dataset.resize;
-    var s = servers.find(function (s) {
-      return s.node + "-" + s.type + "-" + s.id === key;
-    });
-    openResizeDialog(s, kind, node, type, id);
     return;
   }
 
@@ -896,11 +1076,11 @@ listEl.addEventListener("click", async function (e) {
 });
 
 async function doAction(node, type, id, action, row) {
-  row.querySelectorAll("button").forEach(function (b) {
+  row.querySelectorAll("button").forEach(function(b) {
     b.disabled = true;
   });
   try {
-    var res = await fetch(
+    var res = await api(
       "/api/servers/" + node + "/" + type + "/" + id + "/" + action,
       { method: "POST" },
     );
@@ -908,7 +1088,7 @@ async function doAction(node, type, id, action, row) {
       throw new Error((await res.json()).error || "gagal menjalankan aksi");
     setTimeout(load, 1000);
   } catch (err) {
-    alert(err.message);
+    report(err);
     render();
   }
 }
@@ -938,7 +1118,7 @@ function openResizeDialog(s, kind, node, type, id) {
   input.dataset.id = id;
   input.dataset.curval = curVal;
 
-  document.getElementById("dlgResizeOk").onclick = async function () {
+  document.getElementById("dlgResizeOk").onclick = async function() {
     var newVal = parseInt(input.value);
     if (!newVal || newVal <= 0) {
       input.style.borderColor = "var(--down)";
@@ -948,7 +1128,7 @@ function openResizeDialog(s, kind, node, type, id) {
     closeDialog("dlgResize");
     try {
       var payload = isMem ? { delta: newVal } : { delta: newVal - curVal };
-      var res = await fetch(
+      var res = await api(
         "/api/servers/" + node + "/" + type + "/" + id + "/resize/" + kind,
         {
           method: "PUT",
@@ -959,26 +1139,241 @@ function openResizeDialog(s, kind, node, type, id) {
       if (!res.ok) throw new Error((await res.json()).error || "gagal resize");
       setTimeout(load, 1000);
     } catch (err) {
-      alert(err.message);
+      report(err);
     }
   };
 
   showDialog("dlgResize");
 }
 
+async function openHolderDialog(key, row) {
+  var s = servers.find(function(s) {
+    return s.node + "-" + s.type + "-" + s.id === key;
+  });
+  if (!s) return;
+  holderKey = key;
+
+  document.getElementById("dlgHolderBody").textContent =
+    (s.name || "vm-" + s.id) +
+    " (" +
+    s.type.toUpperCase() +
+    " #" +
+    s.id +
+    ")";
+  var list = document.getElementById("holderList");
+  list.innerHTML = '<div class="loading">memuat...</div>';
+  showDialog("dlgHolder");
+
+  try {
+    var res = await api("/api/users?group=admin");
+    if (!res.ok) throw new Error("gagal memuat pengguna admin");
+    var admins = await res.json();
+    if (!admins.length) {
+      list.innerHTML =
+        '<div class="empty">belum ada pengguna dari grup admin</div>';
+      return;
+    }
+    list.innerHTML = admins
+      .map(function(a) {
+        return (
+          '<label class="holder-item"><input type="checkbox" value="' +
+          a.id +
+          '" ' +
+          (s.holderId === a.id ? "checked" : "") +
+          "/> <span><b>" +
+          a.username +
+          "</b>" +
+          (a.fullname ? " — " + a.fullname : "") +
+          "</span></label>"
+        );
+      })
+      .join("");
+  } catch (err) {
+    report(err);
+    list.innerHTML = '<div class="empty">gagal memuat</div>';
+  }
+}
+
+var holderListEl = document.getElementById("holderList");
+holderListEl.addEventListener("change", function(e) {
+  if (e.target.type === "checkbox") {
+    holderListEl.querySelectorAll("input[type=checkbox]").forEach(function(c) {
+      if (c !== e.target) c.checked = false;
+    });
+  }
+});
+
+document.getElementById("dlgHolderOk").addEventListener("click", async function() {
+  var checked = document.querySelector("#holderList input:checked");
+  var key = holderKey;
+  var parts = key.split("-");
+  var node = parts[0];
+  var type = parts[1];
+  var id = parts[2];
+  closeDialog("dlgHolder");
+  try {
+    var url = "/api/servers/" + node + "/" + type + "/" + id + "/holder";
+    if (!checked) {
+      var res = await api(url, { method: "DELETE" });
+      if (!res.ok) throw new Error("gagal melepas penanggung jawab");
+    } else {
+      var res = await api(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ holder: parseInt(checked.value, 10) }),
+      });
+      if (!res.ok)
+        throw new Error((await res.json()).error || "gagal memberi penanggung jawab");
+    }
+    setTimeout(load, 500);
+  } catch (err) {
+    report(err);
+  }
+});
+
+/* ===== Menu pengguna ===== */
+var userMenuBtn = document.getElementById("userMenuBtn");
+var userDropdown = document.getElementById("userDropdown");
+
+userMenuBtn.addEventListener("click", function(e) {
+  e.stopPropagation();
+  userDropdown.hidden = !userDropdown.hidden;
+});
+
+document.addEventListener("click", function() {
+  userDropdown.hidden = true;
+});
+
+userDropdown.addEventListener("click", function(e) {
+  e.stopPropagation();
+});
+
+document.getElementById("userMenuSignout").addEventListener("click", async function(e) {
+  e.preventDefault();
+  try {
+    await api("/api/auth/signout", { method: "POST" });
+  } catch (err) {
+    /* abaikan, tetap keluar */
+  }
+  location.href = "/signin";
+});
+
+/* ===== Ganti kata sandi akun sendiri ===== */
+document.getElementById("userMenuPassword").addEventListener("click", function(e) {
+  e.preventDefault();
+  document.getElementById("passCurrent").value = "";
+  document.getElementById("passNew").value = "";
+  document.getElementById("passConfirm").value = "";
+  showDialog("dlgPassword");
+});
+
+document.getElementById("dlgPasswordOk").addEventListener("click", async function() {
+  var current = document.getElementById("passCurrent").value;
+  var pnew = document.getElementById("passNew").value;
+  var confirm = document.getElementById("passConfirm").value;
+  if (pnew !== confirm) {
+    alert("konfirmasi kata sandi tidak cocok");
+    return;
+  }
+  closeDialog("dlgPassword");
+  try {
+    var res = await api("/api/auth/password", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        current: current,
+        password: pnew,
+        passwordConfirm: confirm,
+      }),
+    });
+    if (!res.ok)
+      throw new Error((await res.json()).error || "gagal mengganti kata sandi");
+  } catch (err) {
+    report(err);
+  }
+});
+
+/* ===== TOTP akun sendiri ===== */
+function renderTOTPDialog() {
+  var hasTotp = !!(currentUser && currentUser.totp);
+  document.getElementById("totpOffHidden").hidden = hasTotp;
+  document.getElementById("totpOnHidden").hidden = !hasTotp;
+  document.getElementById("totpSetupHidden").hidden = true;
+  document.getElementById("totpCode").value = "";
+  document.getElementById("totpQR").hidden = true;
+}
+
+document.getElementById("userMenuTOTP").addEventListener("click", function(e) {
+  e.preventDefault();
+  renderTOTPDialog();
+  showDialog("dlgTOTP");
+});
+
+document.getElementById("totpEnable").addEventListener("click", async function() {
+  try {
+    var res = await api("/api/users/" + currentUser.id + "/totp/setup", {
+      method: "POST",
+    });
+    if (!res.ok) throw new Error((await res.json()).error || "gagal setup TOTP");
+    var data = await res.json();
+    var img = document.getElementById("totpQR");
+    if (data.qr) {
+      img.src = data.qr;
+      img.hidden = false;
+    }
+    document.getElementById("totpSetupHidden").hidden = false;
+  } catch (err) {
+    report(err);
+  }
+});
+
+document.getElementById("totpVerify").addEventListener("click", async function() {
+  var code = document.getElementById("totpCode").value.trim();
+  if (!code) {
+    alert("masukkan kode 6 digit");
+    return;
+  }
+  try {
+    var res = await api("/api/users/" + currentUser.id + "/totp/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: code }),
+    });
+    if (!res.ok)
+      throw new Error((await res.json()).error || "kode TOTP salah");
+    currentUser.totp = true;
+    closeDialog("dlgTOTP");
+  } catch (err) {
+    report(err);
+  }
+});
+
+document.getElementById("totpDisable").addEventListener("click", async function() {
+  try {
+    var res = await api("/api/users/" + currentUser.id + "/totp", {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("gagal nonaktifkan TOTP");
+    currentUser.totp = false;
+    closeDialog("dlgTOTP");
+  } catch (err) {
+    report(err);
+  }
+});
+
 document
   .getElementById("btnCreate")
-  .addEventListener("click", async function () {
+  .addEventListener("click", async function() {
     var sel = document.getElementById("createNode");
     sel.innerHTML = '<option value="">memuat...</option>';
     showDialog("dlgCreate");
 
     try {
-      var res = await fetch("/api/nodes");
+      var res = await api("/api/nodes");
       if (!res.ok) throw new Error("gagal mengambil node");
       var nodes = await res.json();
       sel.innerHTML = nodes
-        .map(function (n) {
+        .map(function(n) {
           return '<option value="' + n.node + '">' + n.node + "</option>";
         })
         .join("");
@@ -989,7 +1384,7 @@ document
 
 document
   .getElementById("dlgCreateOk")
-  .addEventListener("click", async function () {
+  .addEventListener("click", async function() {
     var node = document.getElementById("createNode").value;
     var type = document.getElementById("createType").value;
     var name = document.getElementById("createName").value.trim();
@@ -1005,7 +1400,7 @@ document
 
     closeDialog("dlgCreate");
     try {
-      var res = await fetch("/api/servers", {
+      var res = await api("/api/servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1021,9 +1416,10 @@ document
         throw new Error((await res.json()).error || "gagal membuat VM");
       setTimeout(load, 2000);
     } catch (err) {
-      alert(err.message);
+      report(err);
     }
   });
 
+loadUserInfo();
 load();
 setInterval(load, 1000);

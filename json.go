@@ -70,17 +70,19 @@ type vmSummary struct {
 // dan diberi nama field yang konsisten (id, type, cpuUsage, dst) supaya
 // index.html tidak perlu tahu bedanya struktur qemu vs lxc dari Proxmox.
 type serverEntry struct {
-	ID       int64   `json:"id"`
-	Name     string  `json:"name"`
-	Node     string  `json:"node"`
-	Type     string  `json:"type"`
-	Status   string  `json:"status"`
-	Cpu      float64 `json:"cpu"`
-	CpuUsage float64 `json:"cpuUsage"`
-	MaxMem   int64   `json:"maxmem"`
-	Mem      int64   `json:"mem"`
-	MaxDisk  int64   `json:"maxdisk"`
-	Uptime   int64   `json:"uptime"`
+	ID         int64   `json:"id"`
+	Name       string  `json:"name"`
+	Node       string  `json:"node"`
+	Type       string  `json:"type"`
+	Status     string  `json:"status"`
+	Cpu        float64 `json:"cpu"`
+	CpuUsage   float64 `json:"cpuUsage"`
+	MaxMem     int64   `json:"maxmem"`
+	Mem        int64   `json:"mem"`
+	MaxDisk    int64   `json:"maxdisk"`
+	Uptime     int64   `json:"uptime"`
+	HolderID   int64   `json:"holderId,omitempty"`
+	HolderName string  `json:"holderName,omitempty"`
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
